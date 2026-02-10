@@ -78,8 +78,7 @@ pipeline {
                             $ftpPass = $env:FTP_PASS
                             $ftpDir  = $env:CPANEL_DEPLOY_PATH
 
-                            Write-Host "Deploying to FTP: $ftpHost$ftpDir"
-                            Write-Host "FTP User: $ftpUser"
+                            Write-Host "Deploying to: $ftpHost$ftpDir"
 
                             # Test FTP connection first
                             try {
@@ -88,28 +87,11 @@ pipeline {
                                 $testRequest.Credentials = New-Object System.Net.NetworkCredential($ftpUser, $ftpPass)
                                 $testRequest.Method = [System.Net.WebRequestMethods+Ftp]::PrintWorkingDirectory
                                 $testResponse = $testRequest.GetResponse()
-                                $status = $testResponse.StatusDescription
                                 $testResponse.Close()
-                                Write-Host "SUCCESS: FTP connection established! Server response: $status"
-
-                                # List directories in FTP root
-                                Write-Host "=========================================="
-                                Write-Host "Listing FTP root directory (/):"
-                                Write-Host "=========================================="
-                                $listRequest = [System.Net.FtpWebRequest]::Create("ftp://$ftpHost/")
-                                $listRequest.Credentials = New-Object System.Net.NetworkCredential($ftpUser, $ftpPass)
-                                $listRequest.Method = [System.Net.WebRequestMethods+Ftp]::ListDirectoryDetails
-                                $listResponse = $listRequest.GetResponse()
-                                $reader = New-Object System.IO.StreamReader($listResponse.GetResponseStream())
-                                $listing = $reader.ReadToEnd()
-                                $reader.Close()
-                                $listResponse.Close()
-                                Write-Host $listing
-                                Write-Host "=========================================="
+                                Write-Host "FTP connection successful!"
                             } catch {
                                 Write-Host "ERROR: FTP connection failed!"
                                 Write-Host $_.Exception.Message
-                                Write-Host $_.Exception.InnerException.Message
                                 exit 1
                             }
 
@@ -179,28 +161,22 @@ pipeline {
 
         stage('Post-Deploy') {
             steps {
-                echo 'Running post-deployment tasks...'
+                echo 'Restarting Node.js application...'
 
                 script {
                     try {
-                        echo "Restarting Node.js application via SSH..."
-
                         withCredentials([usernamePassword(
                             credentialsId: 'cpanel-password',
                             usernameVariable: 'SSH_USER',
                             passwordVariable: 'SSH_PASS'
                         )]) {
-                            // Use PowerShell SSH to restart the Node.js app
                             powershell '''
                                 $sshHost = $env:CPANEL_HOST
                                 $sshUser = $env:SSH_USER
                                 $sshPass = $env:SSH_PASS
                                 $appPath = $env:CPANEL_DEPLOY_PATH + "/backend"
 
-                                Write-Host "Connecting to SSH: $sshUser@$sshHost"
-
-                                # Using plink (PuTTY) for SSH on Windows
-                                # First, let's try to find plink in common locations
+                                # Find plink for SSH
                                 $plinkPaths = @(
                                     "C:\\Program Files\\PuTTY\\plink.exe",
                                     "C:\\Program Files (x86)\\PuTTY\\plink.exe",
@@ -216,30 +192,27 @@ pipeline {
                                 }
 
                                 if ($plinkPath) {
-                                    Write-Host "Using plink: $plinkPath"
+                                    Write-Host "Restarting Node.js application via SSH..."
 
-                                    # Kill existing Node.js processes and restart
                                     $commands = @"
                                         cd $appPath
-                                        pkill -f "node server.js" || echo "No existing process found"
+                                        pkill -f "node server.js" || echo "No existing process"
                                         nohup node server.js > app.log 2>&1 &
-                                        echo "Node.js application restarted!"
+                                        echo "Application restarted!"
 "@
 
-                                    & $plinkPath -ssh -pw $sshPass "$sshUser@$sshHost" $commands 2>&1
-                                    Write-Host "SSH commands executed successfully!"
+                                    $output = & $plinkPath -ssh -pw $sshPass "$sshUser@$sshHost" $commands 2>&1
+                                    Write-Host $output
+                                    Write-Host "Node.js application restarted successfully!"
                                 } else {
-                                    Write-Host "WARNING: plink.exe not found. Please install PuTTY or use a different SSH method."
-                                    Write-Host "You can download PuTTY from: https://www.putty.org/"
+                                    Write-Host "SSH tool not found - manual restart required"
                                 }
                             '''
                         }
 
-                        echo "Post-deployment tasks completed!"
-
                     } catch (Exception e) {
-                        echo "Post-deployment note: ${e.message}"
-                        echo "Please manually restart the Node.js app in cPanel"
+                        echo "SSH restart failed: ${e.message}"
+                        echo "Please restart manually via cPanel"
                     }
                 }
             }
