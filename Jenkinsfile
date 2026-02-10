@@ -81,7 +81,58 @@ pipeline {
 
                     } catch (Exception e) {
                         echo "Tests failed: ${e.message}"
-                        echo "Continuing with deployment despite test failure..."
+                        error "Tests failed - aborting pipeline"
+                    }
+                }
+            }
+        }
+
+        stage('Verify FTP Connection') {
+            steps {
+                echo "Testing FTP connection to ${CPANEL_HOST}..."
+
+                script {
+                    try {
+                        // Create a test FTP script to verify connection
+                        writeFile file: 'ftp-test.txt', text: """open ${CPANEL_HOST}
+${CPANEL_CREDS_USR}
+${CPANEL_CREDS_PSW}
+pwd
+quit
+"""
+
+                        // Run FTP test and capture output
+                        def exitCode = bat(script: 'ftp -s:ftp-test.txt', returnStatus: true)
+
+                        // Clean up test file
+                        bat 'if exist ftp-test.txt del ftp-test.txt'
+
+                        if (exitCode != 0) {
+                            error """
+===============================================
+FTP CONNECTION FAILED!
+===============================================
+Could not connect to FTP server: ${CPANEL_HOST}
+Please verify:
+1. FTP Host is correct: ${CPANEL_HOST}
+2. FTP Username is correct in your Jenkins credential
+3. FTP Password is correct in your Jenkins credential
+4. Your FTP account is active in ByetHost VistaPanel
+
+To find your ByetHost FTP credentials:
+- Login to VistaPanel
+- Go to 'FTP Accounts' or 'FTP Manager'
+- Use the FTP username and password shown there
+===============================================
+"""
+                        }
+
+                        echo "✅ FTP connection successful!"
+
+                    } catch (Exception e) {
+                        // Clean up test file
+                        bat 'if exist ftp-test.txt del ftp-test.txt'
+                        throw e
                     }
                 }
             }
@@ -134,13 +185,26 @@ mput *
 quit
 """
 
-                        bat 'ftp -s:ftp-upload.txt'
+                        def exitCode = bat(script: 'ftp -s:ftp-upload.txt', returnStatus: true)
                         bat 'if exist ftp-upload.txt del ftp-upload.txt'
 
-                        echo "Deployment completed successfully!"
+                        if (exitCode != 0) {
+                            error """
+===============================================
+DEPLOYMENT FAILED!
+===============================================
+FTP upload failed with exit code: ${exitCode}
+Please check the FTP logs above for details.
+===============================================
+"""
+                        }
+
+                        echo "✅ Deployment completed successfully!"
 
                     } catch (Exception e) {
                         echo "Deployment failed: ${e.message}"
+                        // Clean up FTP script file on error
+                        bat 'if exist ftp-upload.txt del ftp-upload.txt'
                         throw e
                     }
                 }
