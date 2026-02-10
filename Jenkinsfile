@@ -102,9 +102,8 @@ pipeline {
 
                     try {
                         // Create a test FTP script to verify connection
-                        // Windows FTP format: user, password, then commands
-                        writeFile file: 'ftp-test.txt', text: """${CPANEL_CREDS_USR}
-${CPANEL_CREDS_PSW}
+                        // Windows FTP: commands only, credentials via input
+                        writeFile file: 'ftp-test.txt', text: """user ${CPANEL_CREDS_USR} ${CPANEL_CREDS_PSW}
 pwd
 quit
 """
@@ -174,8 +173,7 @@ To find your ByetHost FTP credentials:
                         echo "Uploading via FTP..."
 
                         // Create a proper Windows FTP script
-                        writeFile file: 'ftp-upload.txt', text: """${CPANEL_CREDS_USR}
-${CPANEL_CREDS_PSW}
+                        writeFile file: 'ftp-upload.txt', text: """user ${CPANEL_CREDS_USR} ${CPANEL_CREDS_PSW}
 binary
 cd ${CPANEL_DEPLOY_PATH}
 mkdir frontend
