@@ -4,30 +4,17 @@ pipeline {
     environment {
         // cPanel Configuration - Update these values
         CPANEL_HOST = '31.22.4.46'  // Temporary FTP hostname (may work better)
-        CPANEL_PORT = '2083'  // cPanel port
-        CPANEL_CREDS = credentials('cpanel-password')  // Provides CPANEL_CREDS_USR and CPANEL_CREDS_PSW
         CPANEL_DEPLOY_PATH = '/home/mvelowco/public_html'
 
         // Deployment Settings
         DEPLOYMENT_NAME = 'simple-app'
-        BUILD_TIMESTAMP = bat(script: "@echo %date:~10,4%%date:~4,2%%date:~7,2%-%time:~0,2%%time:~3,2%%time:~6,2%", returnStdout: true).trim()
     }
 
     stages {
         stage('Code Checkout') {
             steps {
                 echo 'Checking out code from repository...'
-                script {
-                    try {
-                        // Use Jenkins SCM checkout if configured
-                        checkout scm
-                    } catch (Exception e) {
-                        echo "SCM checkout failed: ${e.message}"
-                        // Fallback: assuming code is already in workspace
-                        echo "Using existing workspace code..."
-                    }
-                }
-                // Verify the checkout
+                checkout scm
                 bat 'dir /b'
                 echo "Checkout completed successfully!"
             }
@@ -35,19 +22,8 @@ pipeline {
 
         stage('Install Dependencies') {
             steps {
-                echo 'Checking for Node.js and installing dependencies...'
-                script {
-                    try {
-                        // Check if Node.js is installed
-                        bat 'node --version'
-                    } catch (Exception e) {
-                        echo 'Node.js not found. Please install Node.js on your Jenkins agent.'
-                        error 'Node.js is required but not found. Please install Node.js 18.x or higher.'
-                    }
-
-                    // Install npm dependencies
-                    bat 'cd backend && npm install --production'
-                }
+                echo 'Installing backend dependencies...'
+                bat 'cd backend && npm install --production'
                 echo 'Dependencies installed successfully!'
             }
         }
@@ -55,7 +31,6 @@ pipeline {
         stage('Build') {
             steps {
                 echo 'Building application...'
-                // Add any build steps here if needed
                 echo 'Build completed successfully!'
             }
         }
@@ -63,116 +38,88 @@ pipeline {
         stage('Test') {
             steps {
                 echo 'Running tests...'
+                bat '''
+                    if not exist "frontend\\index.html" exit 1
+                    if not exist "frontend\\style.css" exit 1
+                    if not exist "frontend\\script.js" exit 1
+                    echo Frontend files verified!
+                '''
+                echo "All tests passed!"
+            }
+        }
+
+        stage('Deploy to FTP') {
+            steps {
+                echo 'Deploying to FTP...'
 
                 script {
-                    try {
-                        // Check frontend files exist
-                        bat '''
-                            if not exist "frontend\\index.html" exit 1
-                            if not exist "frontend\\style.css" exit 1
-                            if not exist "frontend\\script.js" exit 1
-                            echo Frontend files verified!
+                    // Create deployment package
+                    bat """
+                        echo Creating deployment package...
+                        if exist deploy-package rmdir /s /q deploy-package
+                        mkdir deploy-package
+                        xcopy /e /i frontend deploy-package\\frontend
+                        mkdir deploy-package\\backend
+                        copy backend\\package.json deploy-package\\backend\\
+                        copy backend\\server.js deploy-package\\backend\\
+                        copy backend\\.htaccess deploy-package\\backend\\
+                        echo Package created successfully!
+                    """
+
+                    // Deploy using PowerShell with credentials
+                    withCredentials([usernamePassword(
+                        credentialsId: 'cpanel-password',
+                        usernameVariable: 'FTP_USER',
+                        passwordVariable: 'FTP_PASS'
+                    )]) {
+                        powershell '''
+                            $ftpHost = $env:CPANEL_HOST
+                            $ftpUser = $env:FTP_USER
+                            $ftpPass = $env:FTP_PASS
+                            $ftpDir  = $env:CPANEL_DEPLOY_PATH
+
+                            Write-Host "Deploying to FTP: $ftpHost$ftpDir"
+
+                            # Upload frontend files
+                            $localPath = "deploy-package\\frontend"
+                            if (Test-Path $localPath) {
+                                $files = Get-ChildItem $localPath -File
+                                foreach ($file in $files) {
+                                    $uri = "ftp://$ftpHost$ftpDir/frontend/" + $file.Name
+                                    Write-Host "Uploading frontend:" $file.Name
+                                    $request = [System.Net.FtpWebRequest]::Create($uri)
+                                    $request.Method = [System.Net.WebRequestMethods+Ftp]::UploadFile
+                                    $request.Credentials = New-Object System.Net.NetworkCredential($ftpUser, $ftpPass)
+                                    $request.UseBinary = $true
+                                    $content = [System.IO.File]::ReadAllBytes($file.FullName)
+                                    $request.ContentLength = $content.Length
+                                    $stream = $request.GetRequestStream()
+                                    $stream.Write($content, 0, $content.Length)
+                                    $stream.Close()
+                                }
+                            }
+
+                            # Upload backend files
+                            $localPath = "deploy-package\\backend"
+                            if (Test-Path $localPath) {
+                                $files = Get-ChildItem $localPath -File
+                                foreach ($file in $files) {
+                                    $uri = "ftp://$ftpHost$ftpDir/backend/" + $file.Name
+                                    Write-Host "Uploading backend:" $file.Name
+                                    $request = [System.Net.FtpWebRequest]::Create($uri)
+                                    $request.Method = [System.Net.WebRequestMethods+Ftp]::UploadFile
+                                    $request.Credentials = New-Object System.Net.NetworkCredential($ftpUser, $ftpPass)
+                                    $request.UseBinary = $true
+                                    $content = [System.IO.File]::ReadAllBytes($file.FullName)
+                                    $request.ContentLength = $content.Length
+                                    $stream = $request.GetRequestStream()
+                                    $stream.Write($content, 0, $content.Length)
+                                    $stream.Close()
+                                }
+                            }
+
+                            Write-Host "Deployment completed successfully!"
                         '''
-
-                        echo "All tests passed!"
-
-                    } catch (Exception e) {
-                        echo "Tests failed: ${e.message}"
-                        error "Tests failed - aborting pipeline"
-                    }
-                }
-            }
-        }
-
-        stage('Verify FTP Connection') {
-            steps {
-                echo "Testing FTP connection to ${CPANEL_HOST}..."
-
-                script {
-                    // ========== DEBUG OUTPUT ==========
-                    echo "==================================="
-                    echo "DEBUG: CREDENTIALS BEING USED:"
-                    echo "==================================="
-                    echo "FTP Host: ${CPANEL_HOST}"
-                    echo "FTP Username: ${CPANEL_CREDS_USR}"
-                    echo "FTP Password: ${CPANEL_CREDS_PSW}"
-                    echo "Deploy Path: ${CPANEL_DEPLOY_PATH}"
-                    echo "==================================="
-                    // ====================================
-
-                    try {
-                        // Use PowerShell for FTP connection test
-                        def exitCode = bat(script: "powershell -Command \"$ftp = [System.Net.FtpWebRequest]::Create('ftp://${CPANEL_HOST}/'); $ftp.Credentials = New-Object System.Net.NetworkCredential('${CPANEL_CREDS_USR}', '${CPANEL_CREDS_PSW}'); $ftp.Method = [System.Net.WebRequestMethods+Ftp]::PrintWorkingDirectory; $response = $ftp.GetResponse(); $status = $response.StatusDescription; $response.Close(); Write-Host 'FTP Connection Successful:' $status; exit 0\"", returnStatus: true)
-
-                        if (exitCode != 0) {
-                            error """
-===============================================
-FTP CONNECTION FAILED!
-===============================================
-Could not connect to FTP server: ${CPANEL_HOST}
-Please verify:
-1. FTP Host is correct: ${CPANEL_HOST}
-2. FTP Username is correct in your Jenkins credential
-3. FTP Password is correct in your Jenkins credential
-4. Your FTP account is active in ByetHost VistaPanel
-
-To find your ByetHost FTP credentials:
-- Login to VistaPanel
-- Go to 'FTP Accounts' or 'FTP Manager'
-- Use the FTP username and password shown there
-===============================================
-"""
-                        }
-
-                        echo "✅ FTP connection successful!"
-
-                    } catch (Exception e) {
-                        // Clean up test file
-                        bat 'if exist ftp-test.txt del ftp-test.txt'
-                        throw e
-                    }
-                }
-            }
-        }
-
-        stage('Deploy to cPanel') {
-            steps {
-                echo "Deploying to cPanel at ${CPANEL_HOST}..."
-
-                script {
-                    try {
-                        // Create deployment package
-                        bat """
-                            echo Creating deployment package...
-                            if exist deploy-package rmdir /s /q deploy-package
-                            mkdir deploy-package
-
-                            REM Copy frontend files
-                            xcopy /e /i frontend deploy-package\\frontend
-
-                            REM Copy backend files (excluding node_modules)
-                            mkdir deploy-package\\backend
-                            copy backend\\package.json deploy-package\\backend\\
-                            copy backend\\server.js deploy-package\\backend\\
-                            copy backend\\.htaccess deploy-package\\backend\\
-
-                            echo Package created successfully!
-                        """
-
-                        // Deploy using FTP with PowerShell
-                        echo "Uploading via FTP..."
-
-                        // Upload frontend files
-                        bat 'powershell -Command "try { $ftp = [System.Net.FtpWebRequest]::Create(\'ftp://${CPANEL_HOST}${CPANEL_DEPLOY_PATH}/frontend/\'); $ftp.Credentials = New-Object System.Net.NetworkCredential(\'${CPANEL_CREDS_USR}\', \'${CPANEL_CREDS_PSW}\'); $ftp.Method = [System.Net.WebRequestMethods+Ftp]::MakeDirectory; $ftp.GetResponse().Close() } catch { Write-Host \'Directory may already exist\' }; Get-ChildItem \'deploy-package\\frontend\' | ForEach-Object { $localPath = $_.FullName; $remotePath = \'ftp://${CPANEL_HOST}${CPANEL_DEPLOY_PATH}/frontend/\' + $_.Name; Write-Host \'Uploading:\' $_.Name; $webclient = New-Object System.Net.WebClient; $webclient.Credentials = New-Object System.Net.NetworkCredential(\'${CPANEL_CREDS_USR}\', \'${CPANEL_CREDS_PSW}\'); $webclient.UploadFile($remotePath, \'STOR\', $localPath) }; Write-Host \'Frontend upload complete\'"'
-
-                        // Upload backend files
-                        bat 'powershell -Command "try { $ftp = [System.Net.FtpWebRequest]::Create(\'ftp://${CPANEL_HOST}${CPANEL_DEPLOY_PATH}/backend/\'); $ftp.Credentials = New-Object System.Net.NetworkCredential(\'${CPANEL_CREDS_USR}\', \'${CPANEL_CREDS_PSW}\'); $ftp.Method = [System.Net.WebRequestMethods+Ftp]::MakeDirectory; $ftp.GetResponse().Close() } catch { Write-Host \'Directory may already exist\' }; Get-ChildItem \'deploy-package\\backend\' | ForEach-Object { $localPath = $_.FullName; $remotePath = \'ftp://${CPANEL_HOST}${CPANEL_DEPLOY_PATH}/backend/\' + $_.Name; Write-Host \'Uploading:\' $_.Name; $webclient = New-Object System.Net.WebClient; $webclient.Credentials = New-Object System.Net.NetworkCredential(\'${CPANEL_CREDS_USR}\', \'${CPANEL_CREDS_PSW}\'); $webclient.UploadFile($remotePath, \'STOR\', $localPath) }; Write-Host \'Backend upload complete\'"'
-
-                        echo "✅ Deployment completed successfully!"
-
-                    } catch (Exception e) {
-                        echo "Deployment failed: ${e.message}"
-                        throw e
                     }
                 }
             }
@@ -181,31 +128,13 @@ To find your ByetHost FTP credentials:
         stage('Post-Deploy') {
             steps {
                 echo 'Running post-deployment tasks...'
-
-                script {
-                    try {
-                        // Note: ByetHost uses VistaPanel, not full cPanel
-                        // The Node.js restart API is not available
-                        echo "ByetHost does not support automatic Node.js restart via API."
-                        echo "Please restart your Node.js application manually in VistaPanel."
-
-                        // Verify deployment
-                        echo "Verifying deployment files..."
-                        bat "curl -s -I \"https://${CPANEL_HOST}/\" | find \"200\""
-
-                        echo "Post-deployment tasks completed!"
-                        echo "=================================="
-                        echo "MANUAL STEPS REQUIRED:"
-                        echo "1. Login to ByetHost VistaPanel"
-                        echo "2. Go to 'Node.js' section"
-                        echo "3. Create or restart your Node.js application"
-                        echo "4. Point it to the backend/server.js file"
-                        echo "=================================="
-
-                    } catch (Exception e) {
-                        echo "Post-deployment note: ${e.message}"
-                    }
-                }
+                echo "=================================="
+                echo "MANUAL STEPS REQUIRED:"
+                echo "1. Login to ByetHost VistaPanel"
+                echo "2. Go to 'Node.js' section"
+                echo "3. Create or restart your Node.js application"
+                echo "4. Point it to the backend/server.js file"
+                echo "=================================="
             }
         }
     }
@@ -222,16 +151,10 @@ To find your ByetHost FTP credentials:
         always {
             script {
                 echo "Cleaning up workspace..."
-                try {
-                    bat """
-                        if exist deploy-package rmdir /s /q deploy-package
-                        if exist *.tar.gz del /q *.tar.gz
-                        if exist ftp-upload.txt del /q ftp-upload.txt
-                        echo Cleanup completed!
-                    """
-                } catch (Exception e) {
-                    echo "Cleanup warning: ${e.message}"
-                }
+                bat """
+                    if exist deploy-package rmdir /s /q deploy-package
+                    echo Cleanup completed!
+                """
 
                 echo """
                     ========================================
