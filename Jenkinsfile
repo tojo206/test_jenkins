@@ -3,7 +3,7 @@ pipeline {
 
     environment {
         // cPanel Configuration - Update these values
-        CPANEL_HOST = 'sv10.byethost10.org'
+        CPANEL_HOST = '31.22.4.46'  // Temporary FTP hostname (may work better)
         CPANEL_PORT = '2083'  // cPanel port
         CPANEL_CREDS = credentials('cpanel-password')  // Provides CPANEL_CREDS_USR and CPANEL_CREDS_PSW
         CPANEL_DEPLOY_PATH = '/home/mvelowco/public_html'
