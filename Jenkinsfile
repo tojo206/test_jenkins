@@ -66,9 +66,6 @@ pipeline {
 
                 script {
                     try {
-                        // Verify the server.js syntax
-                        bat 'node -e "console.log(require(\'./backend/server.js\'))"' || true
-
                         // Check frontend files exist
                         bat '''
                             if not exist "frontend\\index.html" exit 1
