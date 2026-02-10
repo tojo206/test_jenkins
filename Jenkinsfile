@@ -92,6 +92,17 @@ pipeline {
                 echo "Testing FTP connection to ${CPANEL_HOST}..."
 
                 script {
+                    // ========== DEBUG OUTPUT ==========
+                    echo "==================================="
+                    echo "DEBUG: CREDENTIALS BEING USED:"
+                    echo "==================================="
+                    echo "FTP Host: ${CPANEL_HOST}"
+                    echo "FTP Username: ${CPANEL_CREDS_USR}"
+                    echo "FTP Password: ${CPANEL_CREDS_PSW}"
+                    echo "Deploy Path: ${CPANEL_DEPLOY_PATH}"
+                    echo "==================================="
+                    // ====================================
+
                     try {
                         // Create a test FTP script to verify connection
                         writeFile file: 'ftp-test.txt', text: """open ${CPANEL_HOST}
