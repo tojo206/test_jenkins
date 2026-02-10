@@ -91,6 +91,21 @@ pipeline {
                                 $status = $testResponse.StatusDescription
                                 $testResponse.Close()
                                 Write-Host "SUCCESS: FTP connection established! Server response: $status"
+
+                                # List directories in FTP root
+                                Write-Host "=========================================="
+                                Write-Host "Listing FTP root directory (/):"
+                                Write-Host "=========================================="
+                                $listRequest = [System.Net.FtpWebRequest]::Create("ftp://$ftpHost/")
+                                $listRequest.Credentials = New-Object System.Net.NetworkCredential($ftpUser, $ftpPass)
+                                $listRequest.Method = [System.Net.WebRequestMethods+Ftp]::ListDirectoryDetails
+                                $listResponse = $listRequest.GetResponse()
+                                $reader = New-Object System.IO.StreamReader($listResponse.GetResponseStream())
+                                $listing = $reader.ReadToEnd()
+                                $reader.Close()
+                                $listResponse.Close()
+                                Write-Host $listing
+                                Write-Host "=========================================="
                             } catch {
                                 Write-Host "ERROR: FTP connection failed!"
                                 Write-Host $_.Exception.Message
