@@ -114,27 +114,28 @@ pipeline {
                         // Deploy using FTP (most common for cPanel)
                         echo "Uploading via FTP..."
 
-                        // Create a temporary FTP script file
-                        writeFile file: 'ftp-upload.txt', text: """
-                            open ${CPANEL_HOST} 21
-                            ${CPANEL_CREDS_USR}
-                            ${CPANEL_CREDS_PSW}
-                            binary
-                            cd ${CPANEL_DEPLOY_PATH}
-                            mkdir frontend
-                            cd frontend
-                            lcd deploy-package\\frontend
-                            mput *
-                            cd ..
-                            mkdir backend
-                            cd backend
-                            lcd deploy-package\\backend
-                            mput *
-                            quit
-                        """
+                        // Create a proper Windows FTP script
+                        writeFile file: 'ftp-upload.txt', text: """open ${CPANEL_HOST}
+${CPANEL_CREDS_USR}
+${CPANEL_CREDS_PSW}
+binary
+cd ${CPANEL_DEPLOY_PATH}
+mkdir frontend
+cd frontend
+lcd deploy-package\\frontend
+prompt n
+mput *
+cd ..\\..
+mkdir backend
+cd backend
+lcd deploy-package\\backend
+prompt n
+mput *
+quit
+"""
 
                         bat 'ftp -s:ftp-upload.txt'
-                        bat 'del ftp-upload.txt'
+                        bat 'if exist ftp-upload.txt del ftp-upload.txt'
 
                         echo "Deployment completed successfully!"
 
@@ -152,27 +153,26 @@ pipeline {
 
                 script {
                     try {
-                        // Restart Node.js application via cPanel API
-                        echo "Restarting Node.js application..."
-
-                        bat """
-                            curl -s "https://${CPANEL_HOST}:${CPANEL_PORT}/execute/NodeJS/restart_application?name=simple-app" ^
-                                --user "${CPANEL_CREDS_USR}:${CPANEL_CREDS_PSW}" ^
-                                --insecure || echo Restart via API failed, may need manual restart
-                        """
+                        // Note: ByetHost uses VistaPanel, not full cPanel
+                        // The Node.js restart API is not available
+                        echo "ByetHost does not support automatic Node.js restart via API."
+                        echo "Please restart your Node.js application manually in VistaPanel."
 
                         // Verify deployment
-                        echo "Verifying deployment..."
-                        bat """
-                            timeout /t 5 /nobreak
-                            curl -s "https://${CPANEL_HOST}/api/health" || echo Application may need manual restart
-                        """
+                        echo "Verifying deployment files..."
+                        bat "curl -s -I \"https://${CPANEL_HOST}/\" | find \"200\""
 
-                        echo "Post-deployment tasks completed successfully!"
+                        echo "Post-deployment tasks completed!"
+                        echo "=================================="
+                        echo "MANUAL STEPS REQUIRED:"
+                        echo "1. Login to ByetHost VistaPanel"
+                        echo "2. Go to 'Node.js' section"
+                        echo "3. Create or restart your Node.js application"
+                        echo "4. Point it to the backend/server.js file"
+                        echo "=================================="
 
                     } catch (Exception e) {
-                        echo "Post-deployment warning: ${e.message}"
-                        echo "The application was deployed but may need manual restart in cPanel"
+                        echo "Post-deployment note: ${e.message}"
                     }
                 }
             }
