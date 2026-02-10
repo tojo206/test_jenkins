@@ -79,6 +79,24 @@ pipeline {
                             $ftpDir  = $env:CPANEL_DEPLOY_PATH
 
                             Write-Host "Deploying to FTP: $ftpHost$ftpDir"
+                            Write-Host "FTP User: $ftpUser"
+
+                            # Test FTP connection first
+                            try {
+                                Write-Host "Testing FTP connection..."
+                                $testRequest = [System.Net.FtpWebRequest]::Create("ftp://$ftpHost/")
+                                $testRequest.Credentials = New-Object System.Net.NetworkCredential($ftpUser, $ftpPass)
+                                $testRequest.Method = [System.Net.WebRequestMethods+Ftp]::PrintWorkingDirectory
+                                $testResponse = $testRequest.GetResponse()
+                                $status = $testResponse.StatusDescription
+                                $testResponse.Close()
+                                Write-Host "SUCCESS: FTP connection established! Server response: $status"
+                            } catch {
+                                Write-Host "ERROR: FTP connection failed!"
+                                Write-Host $_.Exception.Message
+                                Write-Host $_.Exception.InnerException.Message
+                                exit 1
+                            }
 
                             # Helper function to create FTP directory
                             function Create-FtpDirectory {
