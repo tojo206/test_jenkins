@@ -4,7 +4,7 @@ pipeline {
     environment {
         // cPanel Configuration - Update these values
         CPANEL_HOST = '31.22.4.46'  // Temporary FTP hostname (may work better)
-        CPANEL_DEPLOY_PATH = '/home/mvelowco/public_html'
+        CPANEL_DEPLOY_PATH = '/home.mvelowco/lecture.mvelow.co.za'
 
         // Deployment Settings
         DEPLOYMENT_NAME = 'simple-app'
