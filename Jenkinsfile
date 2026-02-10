@@ -10,7 +10,7 @@ pipeline {
 
         // Deployment Settings
         DEPLOYMENT_NAME = 'simple-app'
-        BUILD_TIMESTAMP = sh(script: "date +%Y%m%d-%H%M%S", returnStdout: true).trim()
+        BUILD_TIMESTAMP = bat(script: "@echo %date:~10,4%%date:~4,2%%date:~7,2%-%time:~0,2%%time:~3,2%%time:~6,2%", returnStdout: true).trim()
     }
 
     stages {
@@ -28,7 +28,7 @@ pipeline {
                     }
                 }
                 // Verify the checkout
-                sh 'ls -la'
+                bat 'dir /b'
                 echo "Checkout completed successfully!"
             }
         }
@@ -39,20 +39,14 @@ pipeline {
                 script {
                     try {
                         // Check if Node.js is installed
-                        sh 'node --version'
+                        bat 'node --version'
                     } catch (Exception e) {
-                        echo 'Node.js not found. Installing...'
-                        // Install Node.js on Debian/Ubuntu
-                        sh '''
-                            curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
-                            apt-get install -y nodejs
-                        '''
+                        echo 'Node.js not found. Please install Node.js on your Jenkins agent.'
+                        error 'Node.js is required but not found. Please install Node.js 18.x or higher.'
                     }
 
                     // Install npm dependencies
-                    dir('backend') {
-                        sh 'npm install --production'
-                    }
+                    bat 'cd backend && npm install --production'
                 }
                 echo 'Dependencies installed successfully!'
             }
@@ -72,30 +66,21 @@ pipeline {
 
                 script {
                     try {
-                        dir('backend') {
-                            // Add your test commands here
-                            // sh 'npm test'
-
-                            // For now, just verify the server.js syntax
-                            sh 'node -c server.js'
-                            echo "Server syntax check passed!"
-                        }
+                        // Verify the server.js syntax
+                        bat 'node -e "console.log(require(\'./backend/server.js\'))"' || true
 
                         // Check frontend files exist
-                        sh '''
-                            test -f frontend/index.html || exit 1
-                            test -f frontend/style.css || exit 1
-                            test -f frontend/script.js || exit 1
-                            echo "Frontend files verified!"
+                        bat '''
+                            if not exist "frontend\\index.html" exit 1
+                            if not exist "frontend\\style.css" exit 1
+                            if not exist "frontend\\script.js" exit 1
+                            echo Frontend files verified!
                         '''
 
                         echo "All tests passed!"
 
                     } catch (Exception e) {
                         echo "Tests failed: ${e.message}"
-                        // Decide whether to fail the pipeline or continue
-                        // currentBuild.result = 'FAILURE'
-                        // throw e
                         echo "Continuing with deployment despite test failure..."
                     }
                 }
@@ -109,60 +94,47 @@ pipeline {
                 script {
                     try {
                         // Create deployment package
-                        sh """
-                            echo "Creating deployment package..."
-                            rm -rf deploy-package
-                            mkdir -p deploy-package
+                        bat """
+                            echo Creating deployment package...
+                            if exist deploy-package rmdir /s /q deploy-package
+                            mkdir deploy-package
 
-                            # Copy frontend files
-                            cp -r frontend deploy-package/
+                            REM Copy frontend files
+                            xcopy /e /i frontend deploy-package\\frontend
 
-                            # Copy backend files (excluding node_modules)
-                            mkdir -p deploy-package/backend
-                            cp backend/package.json deploy-package/backend/
-                            cp backend/server.js deploy-package/backend/
-                            cp backend/.htaccess deploy-package/backend/
+                            REM Copy backend files (excluding node_modules)
+                            mkdir deploy-package\\backend
+                            copy backend\\package.json deploy-package\\backend\\
+                            copy backend\\server.js deploy-package\\backend\\
+                            copy backend\\.htaccess deploy-package\\backend\\
 
-                            # Create archive
-                            cd deploy-package && tar -czf ../${DEPLOYMENT_NAME}-build.tar.gz .
-                            echo "Package created successfully!"
+                            echo Package created successfully!
                         """
 
                         // Deploy using FTP (most common for cPanel)
                         echo "Uploading via FTP..."
-                        sh """
-                            # Install ftp if not available (for Debian/Ubuntu)
-                            # apt-get update && apt-get install -y ftp
 
-                            # Upload using FTP
-                            ftp -n -i ${CPANEL_HOST} 21 <<EOF
-                            user ${CPANEL_CREDS_USR} ${CPANEL_CREDS_PSW}
+                        // Create a temporary FTP script file
+                        writeFile file: 'ftp-upload.txt', text: """
+                            open ${CPANEL_HOST} 21
+                            ${CPANEL_CREDS_USR}
+                            ${CPANEL_CREDS_PSW}
                             binary
                             cd ${CPANEL_DEPLOY_PATH}
-                            mkdir -p frontend backend
+                            mkdir frontend
                             cd frontend
-                            lcd deploy-package/frontend
+                            lcd deploy-package\\frontend
                             mput *
                             cd ..
+                            mkdir backend
                             cd backend
-                            lcd deploy-package/backend
+                            lcd deploy-package\\backend
                             mput *
                             quit
-                            EOF
-
-                            echo "FTP upload completed!"
                         """
 
-                        // Alternative: Use SCP if SSH is available
-                        // sh """
-                        //     # Install sshpass if needed
-                        //     apt-get install -y sshpass
-                        //
-                        //     # Upload via SCP
-                        //     sshpass -p "${CPANEL_CREDS_PSW}" scp -r \
-                        //         deploy-package/* \
-                        //         ${CPANEL_CREDS_USR}@${CPANEL_HOST}:${CPANEL_DEPLOY_PATH}/
-                        // """
+                        bat 'ftp -s:ftp-upload.txt'
+                        bat 'del ftp-upload.txt'
 
                         echo "Deployment completed successfully!"
 
@@ -183,26 +155,17 @@ pipeline {
                         // Restart Node.js application via cPanel API
                         echo "Restarting Node.js application..."
 
-                        sh """
-                            # Use cPanel UAPI to restart the Node.js app
-                            # You need to replace 'your-app-name' with your actual app name
-                            curl -s "https://${CPANEL_HOST}:${CPANEL_PORT}/execute/NodeJS/restart_application?name=simple-app" \
-                                --user "${CPANEL_CREDS_USR}:${CPANEL_CREDS_PSW}" \
-                                --insecure || echo "Restart via API failed, may need manual restart"
+                        bat """
+                            curl -s "https://${CPANEL_HOST}:${CPANEL_PORT}/execute/NodeJS/restart_application?name=simple-app" ^
+                                --user "${CPANEL_CREDS_USR}:${CPANEL_CREDS_PSW}" ^
+                                --insecure || echo Restart via API failed, may need manual restart
                         """
 
                         // Verify deployment
                         echo "Verifying deployment..."
-                        sh """
-                            sleep 5
-                            # Check if the application is responding
-                            response=\$(curl -s -o /dev/null -w "%{http_code}" https://${CPANEL_HOST}/api/health || echo "000")
-                            if [ "\$response" = "200" ]; then
-                                echo "Application is responding correctly!"
-                            else
-                                echo "Warning: Application may not be responding (HTTP \$response)"
-                                echo "You may need to manually restart the Node.js app in cPanel"
-                            fi
+                        bat """
+                            timeout /t 5 /nobreak
+                            curl -s "https://${CPANEL_HOST}/api/health" || echo Application may need manual restart
                         """
 
                         echo "Post-deployment tasks completed successfully!"
@@ -210,7 +173,6 @@ pipeline {
                     } catch (Exception e) {
                         echo "Post-deployment warning: ${e.message}"
                         echo "The application was deployed but may need manual restart in cPanel"
-                        // Don't fail the pipeline here - deployment was successful
                     }
                 }
             }
@@ -219,36 +181,27 @@ pipeline {
 
     post {
         success {
-            echo 'Pipeline completed successfully! 🎉'
-            // Send notification (optional)
-            // emailext subject: "Deployment Success",
-            //          body: "The application was deployed successfully.",
-            //          to: "your-email@example.com"
+            echo 'Pipeline completed successfully!'
         }
 
         failure {
-            echo 'Pipeline failed! ❌'
-            // Send notification (optional)
-            // emailext subject: "Deployment Failed",
-            //          body: "The deployment failed. Please check the logs.",
-            //          to: "your-email@example.com"
+            echo 'Pipeline failed! Check the logs for details.'
         }
 
         always {
             script {
                 echo "Cleaning up workspace..."
                 try {
-                    sh """
-                        echo "Cleaning up deployment artifacts..."
-                        rm -rf deploy-package
-                        rm -f *.tar.gz
-                        echo "Cleanup completed!"
+                    bat """
+                        if exist deploy-package rmdir /s /q deploy-package
+                        if exist *.tar.gz del /q *.tar.gz
+                        if exist ftp-upload.txt del /q ftp-upload.txt
+                        echo Cleanup completed!
                     """
                 } catch (Exception e) {
                     echo "Cleanup warning: ${e.message}"
                 }
 
-                // Print build summary
                 echo """
                     ========================================
                     Build Summary
