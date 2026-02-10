@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple Full-Stack App</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Welcome to My App</h1>
+            <p>A simple full-stack application for Jenkins deployment</p>
+        </header>
+
+        <main>
+            <section class="api-section">
+                <h2>API Test</h2>
+                <button id="fetchData">Fetch Data from Backend</button>
+                <div id="response" class="response"></div>
+            </section>
+
+            <section class="contact-section">
+                <h2>Contact Form</h2>
+                <form id="contactForm">
+                    <input type="text" id="name" placeholder="Your Name" required>
+                    <input type="email" id="email" placeholder="Your Email" required>
+                    <textarea id="message" placeholder="Your Message" required></textarea>
+                    <button type="submit">Send Message</button>
+                </form>
+                <div id="formResponse"></div>
+            </section>
+        </main>
+
+        <footer>
+            <p>&copy; 2025 Simple App | Built with HTML, CSS, JavaScript & Node.js</p>
+        </footer>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
