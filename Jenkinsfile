@@ -180,13 +180,68 @@ pipeline {
         stage('Post-Deploy') {
             steps {
                 echo 'Running post-deployment tasks...'
-                echo "=================================="
-                echo "MANUAL STEPS REQUIRED:"
-                echo "1. Login to ByetHost VistaPanel"
-                echo "2. Go to 'Node.js' section"
-                echo "3. Create or restart your Node.js application"
-                echo "4. Point it to the backend/server.js file"
-                echo "=================================="
+
+                script {
+                    try {
+                        echo "Restarting Node.js application via SSH..."
+
+                        withCredentials([usernamePassword(
+                            credentialsId: 'cpanel-password',
+                            usernameVariable: 'SSH_USER',
+                            passwordVariable: 'SSH_PASS'
+                        )]) {
+                            // Use PowerShell SSH to restart the Node.js app
+                            powershell '''
+                                $sshHost = $env:CPANEL_HOST
+                                $sshUser = $env:SSH_USER
+                                $sshPass = $env:SSH_PASS
+                                $appPath = $env:CPANEL_DEPLOY_PATH + "/backend"
+
+                                Write-Host "Connecting to SSH: $sshUser@$sshHost"
+
+                                # Using plink (PuTTY) for SSH on Windows
+                                # First, let's try to find plink in common locations
+                                $plinkPaths = @(
+                                    "C:\\Program Files\\PuTTY\\plink.exe",
+                                    "C:\\Program Files (x86)\\PuTTY\\plink.exe",
+                                    "plink.exe"
+                                )
+
+                                $plinkPath = $null
+                                foreach ($path in $plinkPaths) {
+                                    if (Test-Path $path) {
+                                        $plinkPath = $path
+                                        break
+                                    }
+                                }
+
+                                if ($plinkPath) {
+                                    Write-Host "Using plink: $plinkPath"
+
+                                    # Kill existing Node.js processes and restart
+                                    $commands = @"
+                                        cd $appPath
+                                        pkill -f "node server.js" || echo "No existing process found"
+                                        nohup node server.js > app.log 2>&1 &
+                                        echo "Node.js application restarted!"
+"@
+
+                                    & $plinkPath -ssh -pw $sshPass "$sshUser@$sshHost" $commands 2>&1
+                                    Write-Host "SSH commands executed successfully!"
+                                } else {
+                                    Write-Host "WARNING: plink.exe not found. Please install PuTTY or use a different SSH method."
+                                    Write-Host "You can download PuTTY from: https://www.putty.org/"
+                                }
+                            '''
+                        }
+
+                        echo "Post-deployment tasks completed!"
+
+                    } catch (Exception e) {
+                        echo "Post-deployment note: ${e.message}"
+                        echo "Please manually restart the Node.js app in cPanel"
+                    }
+                }
             }
         }
     }
