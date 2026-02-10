@@ -6,7 +6,7 @@ pipeline {
         CPANEL_HOST = 'sv10.byethost10.org'
         CPANEL_PORT = '2083'  // cPanel port
         CPANEL_CREDS = credentials('cpanel-password')  // Provides CPANEL_CREDS_USR and CPANEL_CREDS_PSW
-        CPANEL_DEPLOY_PATH = '/home/mvelowco/public_html'
+        CPANEL_DEPLOY_PATH = '/htdocs'  // ByetHost uses /htdocs as web root
 
         // Deployment Settings
         DEPLOYMENT_NAME = 'simple-app'
@@ -102,15 +102,15 @@ pipeline {
 
                     try {
                         // Create a test FTP script to verify connection
-                        writeFile file: 'ftp-test.txt', text: """open ${CPANEL_HOST}
-${CPANEL_CREDS_USR}
+                        // Windows FTP format: user, password, then commands
+                        writeFile file: 'ftp-test.txt', text: """${CPANEL_CREDS_USR}
 ${CPANEL_CREDS_PSW}
 pwd
 quit
 """
 
-                        // Run FTP test and capture output
-                        def exitCode = bat(script: 'ftp -s:ftp-test.txt', returnStatus: true)
+                        // Run FTP test and capture output (specify host separately)
+                        def exitCode = bat(script: "ftp -s:ftp-test.txt ${CPANEL_HOST}", returnStatus: true)
 
                         // Clean up test file
                         bat 'if exist ftp-test.txt del ftp-test.txt'
@@ -174,8 +174,7 @@ To find your ByetHost FTP credentials:
                         echo "Uploading via FTP..."
 
                         // Create a proper Windows FTP script
-                        writeFile file: 'ftp-upload.txt', text: """open ${CPANEL_HOST}
-${CPANEL_CREDS_USR}
+                        writeFile file: 'ftp-upload.txt', text: """${CPANEL_CREDS_USR}
 ${CPANEL_CREDS_PSW}
 binary
 cd ${CPANEL_DEPLOY_PATH}
@@ -184,7 +183,8 @@ cd frontend
 lcd deploy-package\\frontend
 prompt n
 mput *
-cd ..\\..
+cd /
+cd ${CPANEL_DEPLOY_PATH}
 mkdir backend
 cd backend
 lcd deploy-package\\backend
@@ -193,7 +193,7 @@ mput *
 quit
 """
 
-                        def exitCode = bat(script: 'ftp -s:ftp-upload.txt', returnStatus: true)
+                        def exitCode = bat(script: "ftp -s:ftp-upload.txt ${CPANEL_HOST}", returnStatus: true)
                         bat 'if exist ftp-upload.txt del ftp-upload.txt'
 
                         if (exitCode != 0) {
