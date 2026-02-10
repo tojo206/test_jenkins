@@ -101,18 +101,19 @@ pipeline {
                     // ====================================
 
                     try {
-                        // Create a test FTP script to verify connection
-                        // Windows FTP: commands only, credentials via input
-                        writeFile file: 'ftp-test.txt', text: """user ${CPANEL_CREDS_USR} ${CPANEL_CREDS_PSW}
-pwd
-quit
-"""
-
-                        // Run FTP test and capture output (specify host separately)
-                        def exitCode = bat(script: "ftp -s:ftp-test.txt ${CPANEL_HOST}", returnStatus: true)
-
-                        // Clean up test file
-                        bat 'if exist ftp-test.txt del ftp-test.txt'
+                        // Use PowerShell for FTP connection test
+                        def exitCode = bat(script: """
+                            powershell -Command "
+                            \$ftp = [System.Net.FtpWebRequest]::Create('ftp://${CPANEL_HOST}/')
+                            \$ftp.Credentials = New-Object System.Net.NetworkCredential('${CPANEL_CREDS_USR}', '${CPANEL_CREDS_PSW}')
+                            \$ftp.Method = [System.Net.WebRequestMethods+Ftp]::PrintWorkingDirectory
+                            \$response = \$ftp.GetResponse()
+                            \$status = \$response.StatusDescription
+                            \$response.Close()
+                            Write-Host 'FTP Connection Successful: ' \$status
+                            exit 0
+                            "
+                        """, returnStatus: true)
 
                         if (exitCode != 0) {
                             error """
@@ -169,30 +170,48 @@ To find your ByetHost FTP credentials:
                             echo Package created successfully!
                         """
 
-                        // Deploy using FTP (most common for cPanel)
+                        // Deploy using FTP with PowerShell
                         echo "Uploading via FTP..."
 
-                        // Create a proper Windows FTP script
-                        writeFile file: 'ftp-upload.txt', text: """user ${CPANEL_CREDS_USR} ${CPANEL_CREDS_PSW}
-binary
-cd ${CPANEL_DEPLOY_PATH}
-mkdir frontend
-cd frontend
-lcd deploy-package\\frontend
-prompt n
-mput *
-cd /
-cd ${CPANEL_DEPLOY_PATH}
-mkdir backend
-cd backend
-lcd deploy-package\\backend
-prompt n
-mput *
-quit
-"""
+                        // Upload frontend files
+                        bat """
+                            powershell -Command "
+                            \$ftp = [System.Net.FtpWebRequest]::Create('ftp://${CPANEL_HOST}${CPANEL_DEPLOY_PATH}/frontend/')
+                            \$ftp.Credentials = New-Object System.Net.NetworkCredential('${CPANEL_CREDS_USR}', '${CPANEL_CREDS_PSW}')
+                            \$ftp.Method = [System.Net.WebRequestMethods+Ftp]::MakeDirectory
+                            try { \$ftp.GetResponse().Close() } catch { 'Directory may already exist' }
 
-                        def exitCode = bat(script: "ftp -s:ftp-upload.txt ${CPANEL_HOST}", returnStatus: true)
-                        bat 'if exist ftp-upload.txt del ftp-upload.txt'
+                            Get-ChildItem 'deploy-package\\frontend' | ForEach-Object {
+                                \$localPath = \$_.FullName
+                                \$remotePath = 'ftp://${CPANEL_HOST}${CPANEL_DEPLOY_PATH}/frontend/' + \$_.Name
+                                Write-Host 'Uploading:' \$_.Name
+                                \$webclient = New-Object System.Net.WebClient
+                                \$webclient.Credentials = New-Object System.Net.NetworkCredential('${CPANEL_CREDS_USR}', '${CPANEL_CREDS_PSW}')
+                                \$webclient.UploadFile(\$remotePath, 'STOR', \$localPath)
+                            }
+                            Write-Host 'Frontend upload complete'
+                            "
+                        """
+
+                        // Upload backend files
+                        bat """
+                            powershell -Command "
+                            \$ftp = [System.Net.FtpWebRequest]::Create('ftp://${CPANEL_HOST}${CPANEL_DEPLOY_PATH}/backend/')
+                            \$ftp.Credentials = New-Object System.Net.NetworkCredential('${CPANEL_CREDS_USR}', '${CPANEL_CREDS_PSW}')
+                            \$ftp.Method = [System.Net.WebRequestMethods+Ftp]::MakeDirectory
+                            try { \$ftp.GetResponse().Close() } catch { 'Directory may already exist' }
+
+                            Get-ChildItem 'deploy-package\\backend' | ForEach-Object {
+                                \$localPath = \$_.FullName
+                                \$remotePath = 'ftp://${CPANEL_HOST}${CPANEL_DEPLOY_PATH}/backend/' + \$_.Name
+                                Write-Host 'Uploading:' \$_.Name
+                                \$webclient = New-Object System.Net.WebClient
+                                \$webclient.Credentials = New-Object System.Net.NetworkCredential('${CPANEL_CREDS_USR}', '${CPANEL_CREDS_PSW}')
+                                \$webclient.UploadFile(\$remotePath, 'STOR', \$localPath)
+                            }
+                            Write-Host 'Backend upload complete'
+                            "
+                        """
 
                         if (exitCode != 0) {
                             error """
@@ -209,8 +228,6 @@ Please check the FTP logs above for details.
 
                     } catch (Exception e) {
                         echo "Deployment failed: ${e.message}"
-                        // Clean up FTP script file on error
-                        bat 'if exist ftp-upload.txt del ftp-upload.txt'
                         throw e
                     }
                 }
