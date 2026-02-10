@@ -1,10 +1,6 @@
 pipeline {
     agent any
 
-    tools {
-        nodejs 'NodeJS'  // Make sure you have NodeJS configured in Jenkins
-    }
-
     environment {
         // cPanel Configuration - Update these values
         CPANEL_HOST = 'sv10.byethost10.org'
@@ -39,10 +35,26 @@ pipeline {
 
         stage('Install Dependencies') {
             steps {
-                echo 'Installing backend dependencies...'
-                dir('backend') {
-                    sh 'npm install --production'
+                echo 'Checking for Node.js and installing dependencies...'
+                script {
+                    try {
+                        // Check if Node.js is installed
+                        sh 'node --version'
+                    } catch (Exception e) {
+                        echo 'Node.js not found. Installing...'
+                        // Install Node.js on Debian/Ubuntu
+                        sh '''
+                            curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
+                            apt-get install -y nodejs
+                        '''
+                    }
+
+                    // Install npm dependencies
+                    dir('backend') {
+                        sh 'npm install --production'
+                    }
                 }
+                echo 'Dependencies installed successfully!'
             }
         }
 
