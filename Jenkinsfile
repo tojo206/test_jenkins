@@ -80,6 +80,25 @@ pipeline {
 
                             Write-Host "Deploying to FTP: $ftpHost$ftpDir"
 
+                            # Helper function to create FTP directory
+                            function Create-FtpDirectory {
+                                param($dirPath)
+                                try {
+                                    $uri = "ftp://$ftpHost$dirPath"
+                                    $request = [System.Net.FtpWebRequest]::Create($uri)
+                                    $request.Method = [System.Net.WebRequestMethods+Ftp]::MakeDirectory
+                                    $request.Credentials = New-Object System.Net.NetworkCredential($ftpUser, $ftpPass)
+                                    $request.GetResponse().Close()
+                                    Write-Host "Created directory: $dirPath"
+                                } catch {
+                                    Write-Host "Directory may already exist: $dirPath"
+                                }
+                            }
+
+                            # Create directories first
+                            Create-FtpDirectory "$ftpDir/frontend"
+                            Create-FtpDirectory "$ftpDir/backend"
+
                             # Upload frontend files
                             $localPath = "deploy-package\\frontend"
                             if (Test-Path $localPath) {
